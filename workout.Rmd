@@ -1,0 +1,88 @@
+---
+title: "Creating machine learning algorithm to predict activity type and performance based on accelerometers data"
+author: "GB"
+date: "March 18, 2016"
+output: html_document
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(plyr)
+library(doParallel)
+```
+
+## What is it about:
+
+Idea behind this project is to build predictive model that is able to recognize human workout activity type. The training and testing data for such projects can come from personal activity data sensors such as Nike, Fitbit, etc. One possibility is to use data set from Veloso et al. (2013) described at http://groupware.les.inf.puc-rio.br/har and available for download at https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv. Veloso et al. (2013) data set is licensed under the Creative Commons License (CC BY-SA). 
+
+Loading data, empty cells and cells filled with empty spaces will be filled with NA's:
+```{r data, cache=TRUE}
+datar<-read.csv("pml-training.csv", na.strings = c("", " ", "NA"))
+```
+
+### Pre-processing
+
+dropping columns that had NA, or empty spaces, in this data set those are columns that contain derivative data, such as min, max, std, etc. Also dropping columns 1:7 that contain supplemental data.
+
+```{r}
+cols<-function(x){sum(is.na(x))}
+y<-colwise(cols)(datar)
+namestodrop<-c(names(y[which(y>0)]))
+datarm<-datar[,!colnames(datar) %in% namestodrop]
+datarm<-datarm[,-(1:7)]
+rm(y, namestodrop, cols)
+```
+
+That dropped number of columns from `r dim(datar)[2]` to `r dim(datarm)[2]`.
+
+Randomizing and splitting to train (75%), test(25%) data sets:
+
+
+```{r}
+set.seed(101010)
+datas<-datarm[sample(nrow(datarm)),]
+inTrain<-createDataPartition(y=datas$classe, p=0.75, list=F)
+training<-datas[inTrain,]
+testing<-datas[-inTrain,]
+remove(inTrain, datas, datarm)
+```
+
+
+### Modelling
+
+Here random forest model is applied. This model is computationally expansive. Therefore, doParallel package utilized, to deploy all cores of my computer processor.  
+
+```{r modeling, cache=TRUE, warning=FALSE, message=FALSE}
+set.seed(1010123)
+cl<-makeCluster(detectCores(), type='PSOCK')
+registerDoParallel(cl)
+trCon<-trainControl(method="cv")
+modelfit<-train(classe~., data = training, method="rf", tuneGrid=expand.grid(mtry = 10), trControl=trCon)
+registerDoSEQ()
+```
+
+This Random Forest model application uses cross-validation method for resampling. I did not use repetitive CV sampling, since it is not needed for this task. Model performance is:
+
+```{r model summary}
+modelfit
+```
+
+### Testing machine learning model on the data that was not used in training the model
+
+Will use this model (modelfit) to predict activity type for the testing data set and compare the results to the actual values available in classe variable of testing data set.
+
+```{r predict, message=FALSE}
+confusionMatrix(testing$classe, predict(modelfit, testing))
+```
+Here Kappa is higher than 0.99. Statistics by class show that model performs well for each class. The model predicted correctly 4886 activities out of 4904.
+
+### Conclusion
+
+Build machine learning model used random forest algorithm. The model performs well, with Kappa>0.99
+
+### Literature
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013. 
+
+
